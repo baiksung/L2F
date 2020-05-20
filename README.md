@@ -1,14 +1,12 @@
-# How to train your MAML in Pytorch
-A replication of the paper ["How to train your MAML"](https://arxiv.org/abs/1810.09502), along with a replication of the original ["Model Agnostic Meta Learning"](https://arxiv.org/abs/1703.03400) (MAML) paper.
+# Learning to Forget for Meta-Learning
+An implementation of the paper ["Learning to Forget for Meta-Learning (CVPR 2020)"](https://arxiv.org/abs/1906.05895).
 
 ## Introduction
-
-Welcome to the code repository of [How to train your MAML](https://arxiv.org/abs/1810.09502). This repository includes code for training both MAML
-and MAML++ models, as well as data providers and the datasets for both. By using this codebase you agree to the terms 
-and conditions in the [LICENSE](https://github.com/AntreasAntoniou/HowToTrainYourMAMLPytorch/blob/master/LICENSE) file. If you choose to use the Mini-Imagenet dataset, you must abide by the terms and conditions in the [ImageNet LICENSE](https://github.com/AntreasAntoniou/HowToTrainYourMAMLPytorch/blob/master/imagenet_license.md)
+Many parts of this code repository are ported from ["MAML++"](https://github.com/AntreasAntoniou/HowToTrainYourMAMLPytorch).
+This repository includes code for training both MAML
+and MAML+L2F models
 
 ## Installation
-
 The code uses Pytorch to run, along with many other smaller packages. To take care of everything at once, we recommend 
 using the conda package management library. More specifically, 
 [miniconda3](https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh), as it is lightweight and fast to install.
