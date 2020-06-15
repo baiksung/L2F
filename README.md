@@ -8,8 +8,7 @@ Source code for CVPR 2020 paper "Learning to Forget for Meta-Learning"
 
 ## Proposed Meta-Learning
 
-<center><img src="./figures/fig1.png" width="100%"></center>
-<center><img src="./figures/fig3.png" width="100%"></center>
+<center><img src="./figures/overall_fig.png" width="100%"></center>
 
 ## Dataset Preparation
 
