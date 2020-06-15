@@ -1,12 +1,10 @@
-from torch import cuda
-
+import argparse
+import os
+import torch
+import json
 
 def get_args():
-    import argparse
-    import os
-    import torch
-    import json
-    parser = argparse.ArgumentParser(description='Welcome to the MAML++ training and inference system')
+    parser = argparse.ArgumentParser(description='Welcome to the L2F training and inference system')
 
     parser.add_argument('--batch_size', nargs="?", type=int, default=32, help='Batch_size for experiment')
     parser.add_argument('--image_height', nargs="?", type=int, default=28)
@@ -53,6 +51,9 @@ def get_args():
     parser.add_argument('--num_samples_per_class', type=int, default=1, help='Number of samples per set to sample')
     parser.add_argument('--name_of_args_json_file', type=str, default="None")
 
+    # Attenuation option for L2F
+    parser.add_argument('--attenuate', type=str, default="False", help='Option to switch on/off attenuation module')
+
     args = parser.parse_args()
     args_dict = vars(args)
     if args.name_of_args_json_file is not "None":
@@ -74,16 +75,15 @@ def get_args():
 
 
     args.use_cuda = torch.cuda.is_available()
-    if torch.cuda.is_available():  # checks whether a cuda gpu is available and whether the gpu flag is True
-        device = torch.cuda.current_device()
 
-        print("use GPU", device)
-        print("GPU ID {}".format(torch.cuda.current_device()))
+    if args.gpu_to_use == -1:
+        args.use_cuda = False
 
+    if args.use_cuda:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_to_use)
+        device = torch.device('cuda')
     else:
-        print("use CPU")
-        device = torch.device('cpu')  # sets the device to be CPU
-
+        device = torch.device('cpu')
 
     return args, device
 
@@ -94,7 +94,6 @@ class Bunch(object):
     self.__dict__.update(adict)
 
 def extract_args_from_json(json_file_path, args_dict):
-    import json
     summary_filename = json_file_path
     with open(summary_filename) as f:
         summary_dict = json.load(fp=f)

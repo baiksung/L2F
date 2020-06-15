@@ -7,7 +7,6 @@ import torch
 import numpy as np
 
 
-
 def extract_top_level_dict(current_dict):
     """
     Builds a graph dictionary from the passed depth_keys, value pair. Useful for dynamically passing external params
@@ -19,9 +18,6 @@ def extract_top_level_dict(current_dict):
     output_dict = dict()
     for key in current_dict.keys():
         name = key.replace("layer_dict.", "")
-        name = name.replace("layer_dict.", "")
-        name = name.replace("block_dict.", "")
-        name = name.replace("module-", "")
         top_level = name.split(".")[0]
         sub_level = ".".join(name.split(".")[1:])
 
@@ -35,7 +31,6 @@ def extract_top_level_dict(current_dict):
             new_item[sub_level] = current_dict[key]
             output_dict[top_level] = new_item
 
-    #print(current_dict.keys(), output_dict.keys())
     return output_dict
 
 
@@ -323,6 +318,8 @@ class MetaLayerNormLayer(nn.Module):
     def extra_repr(self):
         return '{normalized_shape}, eps={eps}, ' \
                'elementwise_affine={elementwise_affine}'.format(**self.__dict__)
+
+
 class MetaConvNormLayerReLU(nn.Module):
     def __init__(self, input_shape, num_filters, kernel_size, stride, padding, use_bias, args, normalization=True,
                  meta_layer=True, no_bn_learnable_params=False, device=None):
@@ -423,8 +420,8 @@ class MetaConvNormLayerReLU(nn.Module):
 
         if self.normalization:
             out = self.norm_layer.forward(out, num_step=num_step,
-                                          params=batch_norm_params, training=training,
-                                          backup_running_statistics=backup_running_statistics)
+                                      params=batch_norm_params, training=training,
+                                      backup_running_statistics=backup_running_statistics)
 
         out = F.leaky_relu(out)
 
@@ -598,7 +595,7 @@ class VGGReLUNormNetwork(nn.Module):
                                                                         num_filters=self.cnn_filters,
                                                                         kernel_size=3, stride=self.conv_stride,
                                                                         padding=self.args.conv_padding,
-                                                                        use_bias=True, args=self.args,
+                                                                        use_bias=False, args=self.args,
                                                                         normalization=True,
                                                                         meta_layer=self.meta_classifier,
                                                                         no_bn_learnable_params=False,
@@ -636,7 +633,6 @@ class VGGReLUNormNetwork(nn.Module):
         param_dict = dict()
 
         if params is not None:
-            params = {key: value[0] for key, value in params.items()}
             param_dict = extract_top_level_dict(current_dict=params)
 
         # print('top network', param_dict.keys())
@@ -652,6 +648,7 @@ class VGGReLUNormNetwork(nn.Module):
             out = self.layer_dict['conv{}'.format(i)](out, params=param_dict['conv{}'.format(i)], training=training,
                                                       backup_running_statistics=backup_running_statistics,
                                                       num_step=num_step)
+
             if self.args.max_pooling:
                 out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2, padding=0)
 
