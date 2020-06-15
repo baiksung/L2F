@@ -35,15 +35,14 @@ def maybe_unzip_dataset(args):
         print("count stuff________________________________________", total_files)
         if (total_files == 1623 * 20 and datasets[dataset_idx] == 'omniglot_dataset') or (
                 total_files == 100 * 600 and 'mini_imagenet' in datasets[dataset_idx]) or (
+                #'FC100' in datasets[dataset_idx]) or (
+                'cifar100' in datasets[dataset_idx]) or (
                 total_files == 3 and 'mini_imagenet_pkl' in datasets[dataset_idx]):
             print("file count is correct")
             done = True
-        elif datasets[dataset_idx] != 'omniglot_dataset' and datasets[dataset_idx] != 'mini_imagenet' and datasets[dataset_idx] != 'mini_imagenet_pkl':
-            done = True
-            print("using new dataset")
 
         if not done:
-            shutil.rmtree(dataset_path, ignore_errors=True)
+            #shutil.rmtree(dataset_path, ignore_errors=True)
             maybe_unzip_dataset(args)
 
 
