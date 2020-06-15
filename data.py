@@ -78,18 +78,16 @@ def augment_image(image, k, channels, augment_bool, args, dataset_name):
 
 
 def get_transforms_for_dataset(dataset_name, args, k):
-    if "cifar10" in dataset_name or "cifar100" in dataset_name or "FC100" in dataset_name:
+    if "cifar10" in dataset_name or "cifar100" in dataset_name:
         transform_train = [
-            #transforms.RandomCrop(32, padding=4),
-            #transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.5071, 0.4847, 0.4408), (0.2675, 0.2565, 0.2761))]
-            #transforms.Normalize(args.classification_mean, args.classification_std)]
+            transforms.Normalize(args.classification_mean, args.classification_std)]
 
         transform_evaluate = [
             transforms.ToTensor(),
-            transforms.Normalize((0.5071, 0.4847, 0.4408), (0.2675, 0.2565, 0.2761))]
-            #transforms.Normalize(args.classification_mean, args.classification_std)]
+            transforms.Normalize(args.classification_mean, args.classification_std)]
 
     elif 'omniglot' in dataset_name:
 
