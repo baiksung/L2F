@@ -33,6 +33,311 @@ def extract_top_level_dict(current_dict):
 
     return output_dict
 
+class MetaMaxResLayerReLU(nn.Module):
+    def __init__(self, input_shape, num_filters, kernel_size, stride, padding, use_bias, args, normalization=True,
+                 meta_layer=True, no_bn_learnable_params=False, device=None, downsample=None, max_padding=0, maxpool=True):
+        """
+           Initializes a BatchNorm->Conv->ReLU layer which applies those operation in that order.
+           :param args: A named tuple containing the system's hyperparameters.
+           :param device: The device to run the layer on.
+           :param normalization: The type of normalization to use 'batch_norm' or 'layer_norm'
+           :param meta_layer: Whether this layer will require meta-layer capabilities such as meta-batch norm,
+           meta-conv etc.
+           :param input_shape: The image input shape in the form (b, c, h, w)
+           :param num_filters: number of filters for convolutional layer
+           :param kernel_size: the kernel size of the convolutional layer
+           :param stride: the stride of the convolutional layer
+           :param padding: the bias of the convolutional layer
+           :param use_bias: whether the convolutional layer utilizes a bias
+        """
+        super(MetaMaxResLayerReLU, self).__init__()
+        self.normalization = normalization
+        self.use_per_step_bn_statistics = args.per_step_bn_statistics
+        self.input_shape = input_shape
+        self.args = args
+        self.num_filters = num_filters
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.use_bias = use_bias
+        self.meta_layer = meta_layer
+        self.no_bn_learnable_params = no_bn_learnable_params
+        self.device = device
+        self.layer_dict = nn.ModuleDict()
+        self.downsample = downsample
+        self.max_padding = max_padding
+        self.maxpool = maxpool
+        self.build_block()
+
+    def build_block(self):
+
+        x = torch.zeros(self.input_shape)
+
+        identity = x
+        out = x
+
+        self.conv1 = MetaConvNormLayerSwish(input_shape=out.shape,
+                                                                        num_filters=self.num_filters,
+                                                                        kernel_size=3, stride=self.stride,
+                                                                        padding=1,
+                                                                        use_bias=self.use_bias, args=self.args,
+                                                                        normalization=True,
+                                                                        meta_layer=self.meta_layer,
+                                                                        no_bn_learnable_params=False,
+                                                                        device=self.device)
+        out = self.conv1(out, training=True, num_step=0)
+
+        self.conv2 = MetaConvNormLayerSwish(input_shape=out.shape,
+                                                                        num_filters=self.num_filters,
+                                                                        kernel_size=3, stride=self.stride,
+                                                                        padding=1,
+                                                                        use_bias=self.use_bias, args=self.args,
+                                                                        normalization=True,
+                                                                        meta_layer=self.meta_layer,
+                                                                        no_bn_learnable_params=False,
+                                                                        device=self.device)
+        out = self.conv2(out, training=True, num_step=0)
+
+        self.conv3 = MetaConv2dLayer(in_channels=out.shape[1], out_channels=out.shape[1],
+                                    kernel_size=3,
+                                    stride=1, padding=self.padding, use_bias=self.use_bias)
+
+
+
+        out = self.conv3(out)
+
+        self.norm_layer = MetaBatchNormLayer(out.shape[1], track_running_stats=True,
+                                                     meta_batch_norm=self.meta_layer,
+                                                     no_learnable_params=self.no_bn_learnable_params,
+                                                     device=self.device,
+                                                     use_per_step_bn_statistics=self.use_per_step_bn_statistics,
+                                                     args=self.args)
+
+        out = self.norm_layer(out, num_step=0)
+
+
+
+        self.shortcut_conv = MetaConv2dLayer(in_channels=identity.shape[1], out_channels=out.shape[1],
+                                kernel_size=1,
+                                stride=1, padding=0, use_bias=self.use_bias)
+
+        self.shortcut_norm_layer = MetaBatchNormLayer(out.shape[1], track_running_stats=True,
+                                                     meta_batch_norm=self.meta_layer,
+                                                     no_learnable_params=self.no_bn_learnable_params,
+                                                     device=self.device,
+                                                     use_per_step_bn_statistics=self.use_per_step_bn_statistics,
+                                                     args=self.args)
+
+        identity = self.shortcut_conv(identity)
+        identity = self.shortcut_norm_layer(identity, num_step=0)
+
+
+        out += identity
+
+        out = F.relu(out)
+
+        if self.maxpool:
+            out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2, padding=self.max_padding)
+
+
+        print(out.shape)
+
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
+        """
+            Forward propagates by applying the function. If params are none then internal params are used.
+            Otherwise passed params will be used to execute the function.
+            :param input: input data batch, size either can be any.
+            :param num_step: The current inner loop step being taken. This is used when we are learning per step params and
+             collecting per step batch statistics. It indexes the correct object to use for the current time-step
+            :param params: A dictionary containing 'weight' and 'bias'.
+            :param training: Whether this is currently the training or evaluation phase.
+            :param backup_running_statistics: Whether to backup the running statistics. This is used
+            at evaluation time, when after the pass is complete we want to throw away the collected validation stats.
+            :return: The result of the batch norm operation.
+        """
+        conv_params_1 = None
+        conv_params_2 = None
+        conv_params_3 = None
+        conv_params_shortcut = None
+        norm_params = None
+        norm_params_shortcut = None
+        activation_function_pre_params = None
+
+        if params is not None:
+            params = extract_top_level_dict(current_dict=params)
+
+            if self.normalization:
+                if 'activation_function_pre' in params:
+                    activation_function_pre_params = params['activation_function_pre']
+
+            conv_params_1 = params['conv1']
+            conv_params_2 = params['conv2']
+            conv_params_3 = params['conv3']
+            conv_params_shortcut = params['shortcut_conv']
+
+            if 'norm_layer' in params:
+                norm_params = params['norm_layer']
+                norm_params_shortcut = params['shortcut_norm_layer']
+
+        out = x
+        identity = x
+
+        out = self.conv1(out, params=conv_params_1, training=training,
+                                                      backup_running_statistics=backup_running_statistics,
+                                                      num_step=num_step)
+
+        out = self.conv2(out, params=conv_params_2, training=training,
+                                                      backup_running_statistics=backup_running_statistics,
+                                                      num_step=num_step)
+
+        out = self.conv3(out, params=conv_params_3)
+
+        out = self.norm_layer.forward(out, num_step=num_step,
+                                          params=norm_params, training=training,
+                                          backup_running_statistics=backup_running_statistics)
+
+
+
+        identity = self.shortcut_conv(identity, params=conv_params_shortcut)
+        identity = self.shortcut_norm_layer.forward(identity, num_step=num_step,
+                                          params=norm_params_shortcut, training=training,
+                                          backup_running_statistics=backup_running_statistics)
+
+
+        out += identity
+        out = F.relu(out)
+
+        if self.maxpool:
+            out = F.max_pool2d(input=out, kernel_size=(2, 2), stride=2, padding=self.max_padding)
+
+
+        return out
+
+    def restore_backup_stats(self):
+        """
+        Restore stored statistics from the backup, replacing the current ones.
+        """
+        self.conv1.restore_backup_stats()
+        self.conv2.restore_backup_stats()
+        self.norm_layer.restore_backup_stats()
+        self.shortcut_norm_layer.restore_backup_stats()
+
+
+class MetaConvNormLayerSwish(nn.Module):
+    def __init__(self, input_shape, num_filters, kernel_size, stride, padding, use_bias, args, normalization=True,
+                 meta_layer=True, no_bn_learnable_params=False, device=None):
+        """
+           Initializes a BatchNorm->Conv->ReLU layer which applies those operation in that order.
+           :param args: A named tuple containing the system's hyperparameters.
+           :param device: The device to run the layer on.
+           :param normalization: The type of normalization to use 'batch_norm' or 'layer_norm'
+           :param meta_layer: Whether this layer will require meta-layer capabilities such as meta-batch norm,
+           meta-conv etc.
+           :param input_shape: The image input shape in the form (b, c, h, w)
+           :param num_filters: number of filters for convolutional layer
+           :param kernel_size: the kernel size of the convolutional layer
+           :param stride: the stride of the convolutional layer
+           :param padding: the bias of the convolutional layer
+           :param use_bias: whether the convolutional layer utilizes a bias
+        """
+        super(MetaConvNormLayerSwish, self).__init__()
+        self.normalization = normalization
+        self.use_per_step_bn_statistics = args.per_step_bn_statistics
+        self.input_shape = input_shape
+        self.args = args
+        self.num_filters = num_filters
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.use_bias = use_bias
+        self.meta_layer = meta_layer
+        self.no_bn_learnable_params = no_bn_learnable_params
+        self.device = device
+        self.layer_dict = nn.ModuleDict()
+        self.build_block()
+
+    def build_block(self):
+
+        x = torch.zeros(self.input_shape)
+
+        out = x
+
+        self.conv = MetaConv2dLayer(in_channels=out.shape[1], out_channels=self.num_filters,
+                                    kernel_size=self.kernel_size,
+                                    stride=self.stride, padding=self.padding, use_bias=self.use_bias)
+
+
+
+        out = self.conv(out)
+
+        if self.normalization:
+            if self.args.norm_layer == "batch_norm":
+                self.norm_layer = MetaBatchNormLayer(out.shape[1], track_running_stats=True,
+                                                     meta_batch_norm=self.meta_layer,
+                                                     no_learnable_params=self.no_bn_learnable_params,
+                                                     device=self.device,
+                                                     use_per_step_bn_statistics=self.use_per_step_bn_statistics,
+                                                     args=self.args)
+
+            elif self.args.norm_layer == "layer_norm":
+                self.norm_layer = MetaLayerNormLayer(input_feature_shape=out.shape[1:])
+
+            out = self.norm_layer(out, num_step=0)
+
+        out = F.relu(out)
+
+        print(out.shape)
+
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
+        """
+            Forward propagates by applying the function. If params are none then internal params are used.
+            Otherwise passed params will be used to execute the function.
+            :param input: input data batch, size either can be any.
+            :param num_step: The current inner loop step being taken. This is used when we are learning per step params and
+             collecting per step batch statistics. It indexes the correct object to use for the current time-step
+            :param params: A dictionary containing 'weight' and 'bias'.
+            :param training: Whether this is currently the training or evaluation phase.
+            :param backup_running_statistics: Whether to backup the running statistics. This is used
+            at evaluation time, when after the pass is complete we want to throw away the collected validation stats.
+            :return: The result of the batch norm operation.
+        """
+        batch_norm_params = None
+        conv_params = None
+        activation_function_pre_params = None
+
+        if params is not None:
+            params = extract_top_level_dict(current_dict=params)
+
+            if self.normalization:
+                if 'norm_layer' in params:
+                    batch_norm_params = params['norm_layer']
+
+                if 'activation_function_pre' in params:
+                    activation_function_pre_params = params['activation_function_pre']
+
+            conv_params = params['conv']
+
+        out = x
+
+
+        out = self.conv(out, params=conv_params)
+
+        if self.normalization:
+            out = self.norm_layer.forward(out, num_step=num_step,
+                                          params=batch_norm_params, training=training,
+                                          backup_running_statistics=backup_running_statistics)
+
+        out = F.relu(out)
+
+        return out
+
+    def restore_backup_stats(self):
+        """
+        Restore stored statistics from the backup, replacing the current ones.
+        """
+        if self.normalization:
+            self.norm_layer.restore_backup_stats()
+
 
 class MetaConv2dLayer(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, use_bias, groups=1, dilation_rate=1):
@@ -685,3 +990,138 @@ class VGGReLUNormNetwork(nn.Module):
             self.layer_dict['conv{}'.format(i)].restore_backup_stats()
 
 
+class ResNet12(nn.Module):
+    def __init__(self, im_shape, num_output_classes, args, device, meta_classifier=True):
+        """
+        Builds a multilayer convolutional network. It also provides functionality for passing external parameters to be
+        used at inference time. Enables inner loop optimization readily.
+        :param im_shape: The input image batch shape.
+        :param num_output_classes: The number of output classes of the network.
+        :param args: A named tuple containing the system's hyperparameters.
+        :param device: The device to run this on.
+        :param meta_classifier: A flag indicating whether the system's meta-learning (inner-loop) functionalities should
+        be enabled.
+        """
+        super(ResNet12, self).__init__()
+        b, c, self.h, self.w = im_shape
+        self.device = device
+        self.total_layers = 0
+        self.args = args
+        self.upscale_shapes = []
+        self.cnn_filters = args.cnn_num_filters
+        self.input_shape = list(im_shape)
+        self.num_stages = args.num_stages
+        self.num_output_classes = num_output_classes
+
+        if args.max_pooling:
+            print("Using max pooling")
+            self.conv_stride = 1
+        else:
+            print("Using strided convolutions")
+            self.conv_stride = 2
+        self.meta_classifier = meta_classifier
+
+        self.build_network()
+        print("meta network params")
+        for name, param in self.named_parameters():
+            print(name, param.shape)
+
+    def build_network(self):
+        """
+        Builds the network before inference is required by creating some dummy inputs with the same input as the
+        self.im_shape tuple. Then passes that through the network and dynamically computes input shapes and
+        sets output shapes for each layer.
+        """
+        x = torch.zeros(self.input_shape)
+        out = x
+        self.layer_dict = nn.ModuleDict()
+        self.upscale_shapes.append(x.shape)
+
+        num_chn = [64, 128, 256, 512]
+        max_padding = [0, 0, 1, 1]
+        maxpool = [True,True,True,False]
+        for i in range(len(num_chn)):
+            self.layer_dict['layer{}'.format(i)] = MetaMaxResLayerReLU(input_shape=out.shape,
+                                                                    num_filters=num_chn[i],
+                                                                    kernel_size=3, stride=1,
+                                                                    padding=1,
+                                                                    use_bias=False, args=self.args,
+                                                                    #use_bias=True, args=self.args,
+                                                                    normalization=True,
+                                                                    meta_layer=self.meta_classifier,
+                                                                    no_bn_learnable_params=False,
+                                                                    device=self.device,
+                                                                    downsample=False,
+                                                                    max_padding=max_padding[i],
+                                                                    maxpool=maxpool[i])
+            out = self.layer_dict['layer{}'.format(i)](out, training=True, num_step=0)
+
+        out = F.adaptive_avg_pool2d(out, (1,1))
+
+        out = out.view(out.shape[0], -1)
+
+        self.layer_dict['linear'] = MetaLinearLayer(input_shape=(out.shape[0], np.prod(out.shape[1:])),
+                                                    num_filters=self.num_output_classes, use_bias=True)
+
+        out = self.layer_dict['linear'](out)
+        print("ResNet12 build", out.shape)
+
+    def forward(self, x, num_step, params=None, training=False, backup_running_statistics=False):
+        """
+        Forward propages through the network. If any params are passed then they are used instead of stored params.
+        :param x: Input image batch.
+        :param num_step: The current inner loop step number
+        :param params: If params are None then internal parameters are used. If params are a dictionary with keys the
+         same as the layer names then they will be used instead.
+        :param training: Whether this is training (True) or eval time.
+        :param backup_running_statistics: Whether to backup the running statistics in their backup store. Which is
+        then used to reset the stats back to a previous state (usually after an eval loop, when we want to throw away stored statistics)
+        :return: Logits of shape b, num_output_classes.
+        """
+        param_dict = dict()
+
+        if params is not None:
+            param_dict = extract_top_level_dict(current_dict=params)
+
+        for name, param in self.layer_dict.named_parameters():
+            path_bits = name.split(".")
+            layer_name = path_bits[0]
+            if layer_name not in param_dict:
+                param_dict[layer_name] = None
+
+        out = x
+
+        for i in range(self.num_stages):
+            out = self.layer_dict['layer{}'.format(i)](out, params=param_dict['layer{}'.format(i)], training=training,
+                                                  backup_running_statistics=backup_running_statistics,
+                                                  num_step=num_step)
+
+        out = F.adaptive_avg_pool2d(out, (1,1))
+        out = out.view(out.size(0), -1)
+        out = self.layer_dict['linear'](out, param_dict['linear'])
+
+        return out
+
+    def zero_grad(self, params=None):
+        if params is None:
+            for param in self.parameters():
+                if param.requires_grad == True:
+                    if param.grad is not None:
+                        if torch.sum(param.grad) > 0:
+                            print(param.grad)
+                            param.grad.zero_()
+        else:
+            for name, param in params.items():
+                if param.requires_grad == True:
+                    if param.grad is not None:
+                        if torch.sum(param.grad) > 0:
+                            print(param.grad)
+                            param.grad.zero_()
+                            params[name].grad = None
+
+    def restore_backup_stats(self):
+        """
+        Reset stored batch statistics from the stored backup.
+        """
+        for i in range(self.num_stages):
+            self.layer_dict['layer{}'.format(i)].restore_backup_stats()

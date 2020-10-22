@@ -54,6 +54,9 @@ def get_args():
     # Attenuation option for L2F
     parser.add_argument('--attenuate', type=str, default="False", help='Option to switch on/off attenuation module')
 
+    # Backbone Architecture for base-learner
+    parser.add_argument('--architecture', type=str, default="4CONV", help='Backbone Architecture for base-learner')
+
     args = parser.parse_args()
     args_dict = vars(args)
     if args.name_of_args_json_file is not "None":
