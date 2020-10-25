@@ -26,9 +26,9 @@ Note: By downloading and using the miniImageNet datasets, you accept terms and c
 | Model   | Backbone | Batch Size | 1-shot Accuracy | 5-shot Accuracy |
 |---------|----------|------------|-----------------|-----------------|
 |MAML     |ResNet12  |1           |   51.03±0.50%   |    68.26±0.47%  |
-|MAML+L2F |ResNet12  |1           |   57.48±0.49%   |    74.68±0.43%  |
+|MAML+L2F |ResNet12  |1           |**57.48±0.49%**  |  **74.68±0.43%**|
 |MAML     |ResNet12  |2           |   58.37±0.49%   |    69.76±0.46%  |
-|MAML+L2F |ResNet12  |2           |   59.71±0.49%   |    77.04±0.42%  |
+|MAML+L2F |ResNet12  |2           | **59.71±0.49%** |  **77.04±0.42%**|
 
 
 - 5-way classification results on miniImageNet 
