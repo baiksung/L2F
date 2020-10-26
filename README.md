@@ -21,7 +21,7 @@ Note: By downloading and using the miniImageNet datasets, you accept terms and c
 ## Results
 
 - Note that the reported results for ResNet12 were trained with **batch size of 1** to fit into **11GB** GPU Memory.
-- With more than **22GB memory**, models with ResNet12 backbone can be trained with **batch size of 2** to get higher accuracy.
+- With more than **22GB memory**, models with ResNet12 backbone can be trained with **batch size of 2 (the usual setting for 5-way 5-shot classification)** to get higher accuracy.
 
 | Model   | Backbone | Batch Size | 1-shot Accuracy | 5-shot Accuracy |
 |---------|----------|------------|-----------------|-----------------|
